@@ -1,0 +1,35 @@
+[
+  {
+    "id": "rajendra_bhuyan_custom",
+    "name": "RAJENDRA BHUYAN",
+    "kind": "effect",
+    "description": "Custom curated restyle look.",
+    "tier": "free",
+    "credit_cost": 0,
+    "order": -100,
+    "active": true,
+    "pipeline_a": {
+      "grain": 0.25,
+      "vignette": 0.2,
+      "split_tone": {
+        "shadow": "#1F2A38",
+        "highlight": "#FFE8C8"
+      },
+      "contrast": 1.15,
+      "halation": 0.15,
+      "flash_falloff": 0.3,
+      "white_balance": 5500,
+      "filter_strength_default": 80
+    },
+    "pipeline_b": {
+      "prompt_template": "RAJENDRA BHUYAN aesthetic photography, editorial flash lighting",
+      "default_strength": 80,
+      "negative_prompt": "blurry, cartoon, 3d, distorted"
+    },
+    "preview": {
+      "before_url": "http://localhost:4000/uploads/1792813900239_Rajendra_Bhuyan_before.jpg",
+      "after_url": "http://localhost:4000/uploads/1792813900666_Rajendra_Bhuyan_after.jpg",
+      "thumbnail_url": "http://localhost:4000/uploads/1792813900666_Rajendra_Bhuyan_after.jpg"
+    }
+  }
+]
