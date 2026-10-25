@@ -29,11 +29,12 @@ authRouter.post('/auth/anonymous', async (req: Request, res: Response) => {
           timezone,
         });
 
-        // User rule: AI generation is always paid. Initial free AI credit = 0.
+        // Initial free credits for review testing and trial (can be set to 0 after review)
+        const INITIAL_FREE_CREDITS = 3;
         await CreditLedger.create({
           ledgerId: randomUUID(),
           userId,
-          delta: 0,
+          delta: INITIAL_FREE_CREDITS,
           reason: 'initial_grant',
         });
       }
@@ -52,7 +53,7 @@ authRouter.post('/auth/anonymous', async (req: Request, res: Response) => {
         inMemoryLedger.push({
           ledgerId: randomUUID(),
           userId,
-          delta: 0,
+          delta: 3,
           reason: 'initial_grant',
         });
       }
