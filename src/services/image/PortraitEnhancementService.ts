@@ -27,76 +27,68 @@ export class PortraitEnhancementService {
       const width = metadata.width || 1080;
       const height = metadata.height || 1080;
 
-      // Calculate blur radius proportional to image size (e.g. 1.8 for 1000px)
-      const blurRadius = Math.max(1.2, Math.min(3.5, (width / 600)));
+      // Calculate blur radius proportional to image size
+      const blurRadius = Math.max(1.0, Math.min(2.8, (width / 700)));
 
       // 2. Generate smooth skin diffusion layer (Frequency Separation Base)
-      // Removes skin blemishes, acne, bumps, and harsh digital noise
+      // Softens skin imperfections without introducing any red/orange color cast
       const smoothSkinLayer = await sharp(inputBuffer)
         .rotate()
         .blur(blurRadius)
         .modulate({
-          brightness: 1.04,
-          saturation: 1.10,
+          brightness: 1.05,
+          saturation: 0.96, // Keeps red hue down, giving clean natural skin
         })
         .toBuffer();
 
-      // 3. Remini Radiant Bloom & Glow Layer (ethereal cheekbone & facial radiance)
+      // 3. Remini Clean White Radiance Glow Layer (crystal clear cheekbone & porcelain highlights)
       const glowBloomRadius = Math.max(6, Math.min(16, Math.floor(width / 60)));
-      const radiantGlowLayer = await sharp(inputBuffer)
+      const cleanGlowLayer = await sharp(inputBuffer)
         .rotate()
         .blur(glowBloomRadius)
         .modulate({
           brightness: 1.10,
-          saturation: 1.18,
+          saturation: 0.94, // Clean porcelain white glow without red/warm burning
         })
         .toBuffer();
 
-      // 4. Look-specific tone adjustments
-      const lookId = (options.lookId || '').toLowerCase();
-      let brightness = 1.06;
-      let saturation = 1.16;
+      // 4. Studio Brightness & Clean Color Balance (Remini Style)
+      // Noticeably lifts brightness and keeps saturation balanced to eliminate red/orange hue
+      const brightness = 1.14; // Bright, clean, studio-lit exposure
+      const saturation = 1.00; // True neutral colors (pure white clean look, no red hue)
 
-      if (lookId.includes('golden') || lookId.includes('sunset')) {
-        brightness = 1.08;
-        saturation = 1.22;
-      } else if (lookId.includes('moody') || lookId.includes('dark')) {
-        brightness = 1.02;
-        saturation = 1.08;
-      }
-
-      // 5. Composite: Remini Glow Up Multi-Pass
-      // Micro-sharp eyes, lashes, brows & lips + Porcelain Skin + Radiant Face Glow + Pro Contrast
+      // 5. Composite: Remini Ultra HD Crystal Clarity
+      // Razor-sharp eyes & hair + Porcelain Smooth Skin + Clean White Studio Lighting
       const enhancedBuffer = await sharp(inputBuffer)
         .rotate()
-        // Contrast Limited Adaptive Histogram Equalization (Pro studio lighting)
+        // Contrast Limited Adaptive Histogram Equalization with gentle slope to avoid red artifacts
         .clahe({
           width: Math.min(64, Math.max(16, Math.floor(width / 32))),
           height: Math.min(64, Math.max(16, Math.floor(height / 32))),
           maxSlope: 2,
         })
-        // Skin warmth, vitality, and balanced exposure
+        // Boost brightness and maintain pure clean white tones
         .modulate({
           brightness,
           saturation,
         })
-        // Remini crystal-clear detail definition on facial landmarks
+        // Remini crystal-clear detail definition on eyes, lashes, brows & lips
         .sharpen({
-          sigma: 1.35,
-          m1: 1.45,
-          m2: 0.65,
+          sigma: 1.25,
+          m1: 1.35,
+          m2: 0.55,
           x1: 2.0,
-          y2: 12.0,
-          y3: 25.0,
+          y2: 10.0,
+          y3: 20.0,
         })
-        // Multi-layer composite: Porcelain Smooth Skin + Ethereal Radiant Glow
+        // Multi-layer composite: Porcelain Smooth Skin + Clean Luminous Studio Glow
         .composite([
           {
             input: smoothSkinLayer,
             blend: 'soft-light',
           },
           {
-            input: radiantGlowLayer,
+            input: cleanGlowLayer,
             blend: 'soft-light',
           },
         ])
@@ -111,13 +103,13 @@ export class PortraitEnhancementService {
     } catch (err: any) {
       console.warn('[PortraitEnhancementService] Advanced blend failed, using direct beautification fallback:', err.message);
 
-      // Safe secondary fallback: Direct enhance without composite
+      // Safe secondary fallback: Direct clean enhance without red cast
       try {
         return await sharp(inputBuffer)
           .rotate()
-          .modulate({ brightness: 1.06, saturation: 1.15 })
+          .modulate({ brightness: 1.12, saturation: 1.00 })
           .sharpen({ sigma: 1.2 })
-          .jpeg({ quality: 92 })
+          .jpeg({ quality: 94 })
           .toBuffer();
       } catch (secErr: any) {
         throw new Error(`Failed to process image buffer: ${err.message}`);
