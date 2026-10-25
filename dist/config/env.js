@@ -23,7 +23,7 @@ const envSchema = zod_1.z.object({
     GEMINI_API_KEY: zod_1.z.string().optional(),
     HUGGINGFACE_API_KEY: zod_1.z.string().optional(),
     // Google Play In-App Purchases & Subscriptions
-    GOOGLE_PLAY_PACKAGE_NAME: zod_1.z.string().default('com.restyler.app.photo_restyle_app'),
+    GOOGLE_PLAY_PACKAGE_NAME: zod_1.z.string().default('com.snapie.app'),
     GOOGLE_SERVICE_ACCOUNT_KEY_PATH: zod_1.z.string().optional(),
     GOOGLE_SERVICE_ACCOUNT_EMAIL: zod_1.z.string().optional(),
     GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: zod_1.z.string().optional(),

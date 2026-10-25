@@ -23,7 +23,7 @@ describe('Backend App, Auth, Looks & Generations Endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.subscriptions.length).toBe(2);
-    expect(res.body.data.packageName).toBe('com.restyler.app.photo_restyle_app');
+    expect(res.body.data.packageName).toBe('com.snapie.app');
   });
 
   it('POST /api/v1/purchases/google-play/verify verifies and grants subscription', async () => {

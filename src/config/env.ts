@@ -20,7 +20,7 @@ const envSchema = z.object({
   HUGGINGFACE_API_KEY: z.string().optional(),
   
   // Google Play In-App Purchases & Subscriptions
-  GOOGLE_PLAY_PACKAGE_NAME: z.string().default('com.restyler.app.photo_restyle_app'),
+  GOOGLE_PLAY_PACKAGE_NAME: z.string().default('com.snapie.app'),
   GOOGLE_SERVICE_ACCOUNT_KEY_PATH: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().optional(),
