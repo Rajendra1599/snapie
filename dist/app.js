@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createApp = void 0;
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
-const path_1 = __importDefault(require("path"));
 const health_1 = require("./routes/health");
 const looks_1 = require("./routes/looks");
 const auth_1 = require("./routes/auth");
@@ -16,6 +15,7 @@ const reports_1 = require("./routes/reports");
 const users_1 = require("./routes/users");
 const admin_1 = require("./routes/admin");
 const privacy_1 = require("./routes/privacy");
+const media_1 = require("./routes/media");
 const createApp = () => {
     const app = (0, express_1.default)();
     // Trust reverse proxy (Render, Cloudflare, AWS) so req.protocol is correctly 'https'
@@ -23,8 +23,8 @@ const createApp = () => {
     app.use((0, cors_1.default)());
     app.use(express_1.default.json({ limit: '50mb' }));
     app.use(express_1.default.urlencoded({ limit: '50mb', extended: true }));
-    // Static uploads directory for media fallbacks
-    app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../public/uploads')));
+    // Media router handles /uploads and /api/v1/media from both local disk and S3
+    app.use(media_1.mediaRouter);
     // Root redirect to Admin Panel
     app.get('/', (_req, res) => {
         res.redirect('/admin');
@@ -50,6 +50,7 @@ const createApp = () => {
     app.use('/api/v1', users_1.usersRouter);
     app.use('/api/v1', admin_1.adminRouter);
     app.use('/api/v1', privacy_1.privacyRouter);
+    app.use('/api/v1', media_1.mediaRouter);
     // Fallback 404
     app.use((_req, res) => {
         res.status(404).json({ error: 'Endpoint not found' });

@@ -30,15 +30,26 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 /**
- * Uploads an image either to AWS S3 (if valid credentials present) or locally as fallback.
- * Returns full absolute URL so both Chrome and Flutter client can load it without failing.
+ * Uploads an image to both local cache and AWS S3 bucket for persistent storage.
+ * Returns a fully qualified URL routed through the backend proxy so images are 100% visible
+ * without AWS S3 BlockPublicAccess 403 errors.
  */
 async function uploadAdminMedia(req: Request, fileBase64: string, filename: string): Promise<string> {
   const matches = fileBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
   const buffer = matches ? Buffer.from(matches[2], 'base64') : Buffer.from(fileBase64, 'base64');
   const contentType = matches ? matches[1] : 'image/jpeg';
-  const key = `uploads/${Date.now()}_${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+  const localFilename = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+  const key = `uploads/${localFilename}`;
 
+  // 1. Save to local disk immediately
+  const localFilePath = path.join(uploadsDir, localFilename);
+  try {
+    fs.writeFileSync(localFilePath, buffer);
+  } catch (writeErr) {
+    console.warn('[Admin Media Disk Write Warning]:', writeErr);
+  }
+
+  // 2. Upload to AWS S3 bucket
   const isRealAwsConfigured =
     Boolean(env.AWS_ACCESS_KEY_ID) &&
     !env.AWS_ACCESS_KEY_ID.startsWith('mock') &&
@@ -47,28 +58,36 @@ async function uploadAdminMedia(req: Request, fileBase64: string, filename: stri
 
   if (isRealAwsConfigured) {
     try {
-      const cdnUrl = await storageService.uploadBuffer(key, buffer, contentType);
-      return cdnUrl;
-    } catch (err) {
-      console.warn('[Admin AWS Upload Warning]: S3 upload failed, using local storage fallback', err);
+      await storageService.uploadBuffer(key, buffer, contentType);
+      console.log(`[Admin AWS Upload]: Stored in S3 bucket "${env.AWS_S3_BUCKET}" under key "${key}"`);
+    } catch (err: any) {
+      console.warn('[Admin AWS Upload Warning]: S3 upload failed:', err.message);
     }
   }
 
-  // Instant local storage with portable relative path
-  const localFilename = path.basename(key);
-  const localFilePath = path.join(uploadsDir, localFilename);
-  fs.writeFileSync(localFilePath, buffer);
-  return `/uploads/${localFilename}`;
+  // 3. Return the proxy URL
+  const baseUrl = getRequestBaseUrl(req);
+  return `${baseUrl}/uploads/${localFilename}`;
 }
 
 export function resolveMediaUrl(baseUrl: string, url?: string): string {
   if (!url) return '';
+  let secureBase = baseUrl;
+  if (secureBase.includes('onrender.com') || secureBase.includes('render.com')) {
+    secureBase = secureBase.replace(/^http:/, 'https:');
+  }
+
+  // If URL points to AWS S3, route it through our media proxy to prevent 403 BlockPublicAccess
+  if (url.includes('.amazonaws.com/')) {
+    const s3Part = url.split('.amazonaws.com/')[1]?.split('?')[0];
+    if (s3Part) {
+      const filename = path.basename(s3Part);
+      return `${secureBase}/uploads/${filename}`;
+    }
+  }
+
   if (url.includes('/uploads/')) {
     const idx = url.indexOf('/uploads/');
-    let secureBase = baseUrl;
-    if (secureBase.includes('onrender.com') || secureBase.includes('render.com')) {
-      secureBase = secureBase.replace(/^http:/, 'https:');
-    }
     return `${secureBase}${url.substring(idx)}`;
   }
   if (url.startsWith('http://') && (url.includes('onrender.com') || url.includes('render.com'))) {

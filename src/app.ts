@@ -10,6 +10,7 @@ import { reportsRouter } from './routes/reports';
 import { usersRouter } from './routes/users';
 import { adminRouter } from './routes/admin';
 import { privacyRouter } from './routes/privacy';
+import { mediaRouter } from './routes/media';
 
 export const createApp = (): Application => {
   const app = express();
@@ -21,8 +22,8 @@ export const createApp = (): Application => {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Static uploads directory for media fallbacks
-  app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
+  // Media router handles /uploads and /api/v1/media from both local disk and S3
+  app.use(mediaRouter);
 
   // Root redirect to Admin Panel
   app.get('/', (_req: Request, res: Response) => {
@@ -55,6 +56,7 @@ export const createApp = (): Application => {
   app.use('/api/v1', usersRouter);
   app.use('/api/v1', adminRouter);
   app.use('/api/v1', privacyRouter);
+  app.use('/api/v1', mediaRouter);
 
   // Fallback 404
   app.use((_req: Request, res: Response) => {
