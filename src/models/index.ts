@@ -166,9 +166,58 @@ const ReportSchema = new Schema<IReport>(
   { timestamps: { createdAt: 'createdAt', updatedAt: false } }
 );
 
+// ==================== Onboarding Slide ====================
+export interface IOnboardingSlide extends Document {
+  id: string;
+  title: string;
+  subtitle: string;
+  before_url: string;
+  after_url: string;
+  filter: number[];
+  order: number;
+}
+
+const OnboardingSlideSchema = new Schema<IOnboardingSlide>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true },
+    subtitle: { type: String, default: '' },
+    before_url: { type: String, default: '' },
+    after_url: { type: String, default: '' },
+    filter: { type: [Number], default: [] },
+    order: { type: Number, default: 1 },
+  },
+  { timestamps: true }
+);
+
+// ==================== Hero Config ====================
+export interface IHeroConfig extends Document {
+  key: string;
+  picture1_url: string;
+  picture2_url: string;
+  title: string;
+  subtitle: string;
+  button_text: string;
+}
+
+const HeroConfigSchema = new Schema<IHeroConfig>(
+  {
+    key: { type: String, required: true, unique: true, default: 'default' },
+    picture1_url: { type: String, default: '' },
+    picture2_url: { type: String, default: '' },
+    title: { type: String, default: 'aesthetic\nfilters' },
+    subtitle: { type: String, default: 'Film looks and pro adjustments, free on any photo.' },
+    button_text: { type: String, default: 'SELECT A PHOTO' },
+  },
+  { timestamps: true }
+);
+
 export const User = mongoose.model<IUser>('User', UserSchema);
 export const Look = mongoose.model<ILook>('Look', LookSchema);
 export const Generation = mongoose.model<IGeneration>('Generation', GenerationSchema);
 export const CreditLedger = mongoose.model<ICreditLedger>('CreditLedger', CreditLedgerSchema);
 export const Purchase = mongoose.model<IPurchase>('Purchase', PurchaseSchema);
 export const Report = mongoose.model<IReport>('Report', ReportSchema);
+export const OnboardingSlide = mongoose.model<IOnboardingSlide>('OnboardingSlide', OnboardingSlideSchema);
+export const HeroConfig = mongoose.model<IHeroConfig>('HeroConfig', HeroConfigSchema);
+

@@ -18,6 +18,8 @@ const admin_1 = require("./routes/admin");
 const privacy_1 = require("./routes/privacy");
 const createApp = () => {
     const app = (0, express_1.default)();
+    // Trust reverse proxy (Render, Cloudflare, AWS) so req.protocol is correctly 'https'
+    app.set('trust proxy', true);
     app.use((0, cors_1.default)());
     app.use(express_1.default.json({ limit: '50mb' }));
     app.use(express_1.default.urlencoded({ limit: '50mb', extended: true }));
@@ -33,6 +35,8 @@ const createApp = () => {
     app.use(privacy_1.privacyRouter);
     // Admin Web Panel (Available directly at http://localhost:4000/admin)
     app.use(admin_1.adminRouter);
+    // In-app billing & webhook router (both root and /api/v1 paths supported)
+    app.use(purchases_1.purchasesRouter);
     // Standard Image Edit endpoints for BFL FLUX 3 Image
     app.post('/api/image/edit', generations_1.handleImageEdit);
     app.post('/image/edit', generations_1.handleImageEdit);

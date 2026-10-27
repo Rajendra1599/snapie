@@ -14,6 +14,9 @@ import { privacyRouter } from './routes/privacy';
 export const createApp = (): Application => {
   const app = express();
 
+  // Trust reverse proxy (Render, Cloudflare, AWS) so req.protocol is correctly 'https'
+  app.set('trust proxy', true);
+
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -34,6 +37,9 @@ export const createApp = (): Application => {
 
   // Admin Web Panel (Available directly at http://localhost:4000/admin)
   app.use(adminRouter);
+
+  // In-app billing & webhook router (both root and /api/v1 paths supported)
+  app.use(purchasesRouter);
 
   // Standard Image Edit endpoints for BFL FLUX 3 Image
   app.post('/api/image/edit', handleImageEdit);

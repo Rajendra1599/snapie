@@ -190,7 +190,7 @@ purchasesRouter.post('/purchases/google-play/verify', async (req: Request, res: 
           } catch (_) {}
         }
 
-        if (!isValid && (purchaseToken.startsWith('test_') || purchaseToken.startsWith('inapp_tok_') || env.NODE_ENV !== 'production')) {
+        if (!isValid && (purchaseToken.startsWith('test_') || env.NODE_ENV !== 'production')) {
           console.log('[Google Play Billing] Development fallback accepted for test purchase token.');
           isValid = true;
           orderId = `GPA.dev-${purchaseToken.substring(0, 16)}`;
@@ -199,7 +199,6 @@ purchasesRouter.post('/purchases/google-play/verify', async (req: Request, res: 
         console.warn('[Google Play Billing] Live API validation notice:', apiErr.message);
         if (
           purchaseToken.startsWith('test_') ||
-          purchaseToken.startsWith('inapp_tok_') ||
           env.NODE_ENV !== 'production'
         ) {
           console.log('[Google Play Billing] Development fallback accepted for test purchase token.');

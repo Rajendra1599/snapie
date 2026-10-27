@@ -57,16 +57,27 @@ function resolveMediaUrl(baseUrl, url) {
         return '';
     if (url.includes('/uploads/')) {
         const idx = url.indexOf('/uploads/');
-        return `${baseUrl}${url.substring(idx)}`;
+        let secureBase = baseUrl;
+        if (secureBase.includes('onrender.com') || secureBase.includes('render.com')) {
+            secureBase = secureBase.replace(/^http:/, 'https:');
+        }
+        return `${secureBase}${url.substring(idx)}`;
+    }
+    if (url.startsWith('http://') && (url.includes('onrender.com') || url.includes('render.com'))) {
+        return url.replace(/^http:/, 'https:');
     }
     return url;
+}
+function getRequestBaseUrl(req) {
+    const host = req.get('host') || 'localhost:4000';
+    const proto = req.get('x-forwarded-proto') || (host.includes('onrender.com') ? 'https' : req.protocol);
+    return `${proto}://${host}`;
 }
 /**
  * Helper to ensure look preview URLs are always fully qualified
  */
 function normalizeLookUrls(req, looks) {
-    const host = req.get('host') || 'localhost:4000';
-    const baseUrl = `${req.protocol}://${host}`;
+    const baseUrl = getRequestBaseUrl(req);
     return looks.map((look) => ({
         ...look,
         preview: {
@@ -78,8 +89,7 @@ function normalizeLookUrls(req, looks) {
     }));
 }
 function normalizeOnboardingUrls(req, slides) {
-    const host = req.get('host') || 'localhost:4000';
-    const baseUrl = `${req.protocol}://${host}`;
+    const baseUrl = getRequestBaseUrl(req);
     return slides.map((slide) => ({
         ...slide,
         before_url: resolveMediaUrl(baseUrl, slide.before_url),
@@ -87,8 +97,7 @@ function normalizeOnboardingUrls(req, slides) {
     }));
 }
 function normalizeHeroUrls(req, hero) {
-    const host = req.get('host') || 'localhost:4000';
-    const baseUrl = `${req.protocol}://${host}`;
+    const baseUrl = getRequestBaseUrl(req);
     return {
         ...hero,
         picture1_url: resolveMediaUrl(baseUrl, hero.picture1_url),
@@ -114,9 +123,58 @@ exports.adminRouter.post('/admin/login', (req, res) => {
 });
 // ==================== LOOKS & FILTERS ====================
 // GET /api/v1/admin/looks - List all looks for admin
-exports.adminRouter.get('/admin/looks', (req, res) => {
+exports.adminRouter.get('/admin/looks', async (req, res) => {
     try {
-        const formatted = normalizeLookUrls(req, starterLooks_1.STARTER_LOOKS);
+        let results = [...starterLooks_1.STARTER_LOOKS];
+        if (mongoose_1.default.connection.readyState === 1) {
+            try {
+                const dbLooks = await models_1.Look.find().sort({ order: 1 }).lean();
+                for (const dl of dbLooks) {
+                    const id = (dl.id || dl.lookId || dl._id?.toString());
+                    const formatted = {
+                        id,
+                        name: dl.name,
+                        kind: dl.kind,
+                        description: dl.description || '',
+                        tier: (dl.tier || 'free'),
+                        credit_cost: dl.creditCost || 0,
+                        order: dl.order || 0,
+                        active: dl.active !== false,
+                        pipeline_a: dl.pipeline_a || dl.pipelineA || {
+                            grain: 0.25,
+                            vignette: 0.2,
+                            split_tone: { shadow: '#1F2A38', highlight: '#FFE8C8' },
+                            contrast: 1.15,
+                            halation: 0.15,
+                            flash_falloff: 0.3,
+                            white_balance: 5500,
+                            filter_strength_default: 80,
+                        },
+                        pipeline_b: dl.pipeline_b || dl.pipelineB || {
+                            prompt_template: `${dl.name} aesthetic photography`,
+                            default_strength: 80,
+                            negative_prompt: 'blurry, cartoon, 3d, distorted',
+                        },
+                        preview: {
+                            before_url: dl.preview?.before_url || dl.preview?.beforeUrl || '',
+                            after_url: dl.preview?.after_url || dl.preview?.afterUrl || '',
+                            thumbnail_url: dl.preview?.thumbnail_url || dl.preview?.thumbnailUrl || '',
+                        },
+                    };
+                    const existingIdx = results.findIndex((l) => l.id === id);
+                    if (existingIdx !== -1) {
+                        results[existingIdx] = formatted;
+                    }
+                    else {
+                        results.unshift(formatted);
+                    }
+                }
+            }
+            catch (dbErr) {
+                console.warn('[Admin Looks] DB query warning:', dbErr);
+            }
+        }
+        const formatted = normalizeLookUrls(req, results);
         res.status(200).json({
             success: true,
             data: formatted,
@@ -130,31 +188,39 @@ exports.adminRouter.get('/admin/looks', (req, res) => {
 // POST /api/v1/admin/looks - Create or Update Effect / Template
 exports.adminRouter.post('/admin/looks', async (req, res) => {
     try {
-        const { id: lookId, name, kind, description, promptTemplate, negativePrompt, tier = 'free', beforeImageBase64, afterImageBase64, beforeUrl, afterUrl, } = req.body;
+        const { id: lookId, name, kind, description, promptTemplate, negativePrompt, tier = 'free', creditCost, beforeImageBase64, afterImageBase64, beforeUrl, afterUrl, } = req.body;
         if (!name || !kind) {
-            return res.status(400).json({ success: false, error: 'Name and kind are required' });
+            return res.status(400).json({ success: false, error: 'Name and category are required' });
         }
         const id = lookId || (name.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_' + (0, crypto_1.randomUUID)().substring(0, 4));
         // If updating, find existing look to preserve urls if no new image was selected
         const existingLooks = starterLooks_1.STARTER_LOOKS.find((l) => l.id === id);
-        let finalBeforeUrl = beforeUrl || existingLooks?.preview.before_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&q=80';
-        let finalAfterUrl = afterUrl || existingLooks?.preview.after_url || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&q=80';
-        if (beforeImageBase64) {
-            finalBeforeUrl = await uploadAdminMedia(req, beforeImageBase64, `${name}_before.jpg`);
-        }
+        let finalAfterUrl = afterUrl || existingLooks?.preview.after_url || '';
+        let finalBeforeUrl = beforeUrl || existingLooks?.preview.before_url || '';
         if (afterImageBase64) {
             finalAfterUrl = await uploadAdminMedia(req, afterImageBase64, `${name}_after.jpg`);
         }
-        else if (beforeImageBase64 && !afterImageBase64 && !finalAfterUrl) {
-            finalAfterUrl = finalBeforeUrl;
+        if (beforeImageBase64) {
+            finalBeforeUrl = await uploadAdminMedia(req, beforeImageBase64, `${name}_before.jpg`);
         }
+        else if (!finalBeforeUrl && finalAfterUrl) {
+            finalBeforeUrl = finalAfterUrl;
+        }
+        if (!finalAfterUrl) {
+            finalAfterUrl = 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&q=80';
+        }
+        if (!finalBeforeUrl) {
+            finalBeforeUrl = finalAfterUrl;
+        }
+        const assignedTier = (tier === 'gold' || tier === 'plus') ? tier : 'free';
+        const computedCreditCost = creditCost !== undefined ? Number(creditCost) : (assignedTier === 'gold' ? 2 : (assignedTier === 'plus' ? 1 : 0));
         const newLook = {
             id,
-            name: name.toUpperCase(),
+            name: name.toUpperCase().trim(),
             kind: kind === 'template' ? 'template' : 'effect',
             description: description || 'Creative look curated by admin.',
-            tier: tier || 'free',
-            credit_cost: 0,
+            tier: assignedTier,
+            credit_cost: computedCreditCost,
             order: existingLooks?.order ?? -Date.now(),
             active: true,
             pipeline_a: existingLooks?.pipeline_a ?? {
@@ -180,7 +246,19 @@ exports.adminRouter.post('/admin/looks', async (req, res) => {
         };
         (0, customLooksStorage_1.saveCustomLook)(newLook);
         if (mongoose_1.default.connection.readyState === 1) {
-            await models_1.Look.findOneAndUpdate({ $or: [{ id }, { lookId: id }] }, { ...newLook, id, lookId: id }, { upsert: true, returnDocument: 'after' });
+            await models_1.Look.findOneAndUpdate({ $or: [{ id }, { lookId: id }] }, {
+                ...newLook,
+                id,
+                lookId: id,
+                creditCost: computedCreditCost,
+                pipelineA: newLook.pipeline_a,
+                pipelineB: newLook.pipeline_b,
+                preview: {
+                    beforeUrl: finalBeforeUrl,
+                    afterUrl: finalAfterUrl,
+                    thumbnailUrl: finalAfterUrl,
+                },
+            }, { upsert: true, returnDocument: 'after' });
         }
         res.status(201).json({
             success: true,
@@ -203,9 +281,31 @@ exports.adminRouter.delete('/admin/looks/:id', async (req, res) => {
 });
 // ==================== ONBOARDING (APP OPEN 3 IMAGES) ====================
 // GET /api/v1/onboarding & /api/v1/admin/onboarding
-exports.adminRouter.get(['/onboarding', '/admin/onboarding'], (req, res) => {
+exports.adminRouter.get(['/onboarding', '/admin/onboarding'], async (req, res) => {
     try {
-        const slides = (0, onboardingStorage_1.loadOnboardingSlides)();
+        let slides = [];
+        if (mongoose_1.default.connection.readyState === 1) {
+            try {
+                const dbSlides = await models_1.OnboardingSlide.find().sort({ order: 1 }).lean();
+                if (dbSlides.length > 0) {
+                    slides = dbSlides.map((s) => ({
+                        id: s.id,
+                        title: s.title,
+                        subtitle: s.subtitle,
+                        before_url: s.before_url,
+                        after_url: s.after_url,
+                        filter: s.filter || [],
+                        order: s.order,
+                    }));
+                }
+            }
+            catch (dbErr) {
+                console.warn('[Onboarding] DB fetch warning:', dbErr);
+            }
+        }
+        if (slides.length === 0) {
+            slides = (0, onboardingStorage_1.loadOnboardingSlides)();
+        }
         const formatted = normalizeOnboardingUrls(req, slides);
         res.status(200).json({
             success: true,
@@ -251,6 +351,9 @@ exports.adminRouter.post('/admin/onboarding', async (req, res) => {
             order: Number(order) || 1,
         };
         (0, onboardingStorage_1.saveOnboardingSlide)(newSlide);
+        if (mongoose_1.default.connection.readyState === 1) {
+            await models_1.OnboardingSlide.findOneAndUpdate({ id }, newSlide, { upsert: true });
+        }
         res.status(201).json({
             success: true,
             data: newSlide,
@@ -262,16 +365,39 @@ exports.adminRouter.post('/admin/onboarding', async (req, res) => {
     }
 });
 // DELETE /api/v1/admin/onboarding/:id
-exports.adminRouter.delete('/admin/onboarding/:id', (req, res) => {
+exports.adminRouter.delete('/admin/onboarding/:id', async (req, res) => {
     const id = String(req.params.id);
     (0, onboardingStorage_1.deleteOnboardingSlide)(id);
+    if (mongoose_1.default.connection.readyState === 1) {
+        await models_1.OnboardingSlide.deleteOne({ id });
+    }
     res.status(200).json({ success: true, message: 'Onboarding slide removed' });
 });
 // ==================== HERO POLAROIDS (FILTERS PAGE 2 PHOTOS) ====================
 // GET /api/v1/hero & /api/v1/admin/hero
-exports.adminRouter.get(['/hero', '/admin/hero'], (req, res) => {
+exports.adminRouter.get(['/hero', '/admin/hero'], async (req, res) => {
     try {
-        const config = (0, heroStorage_1.loadHeroConfig)();
+        let config = null;
+        if (mongoose_1.default.connection.readyState === 1) {
+            try {
+                const dbHero = await models_1.HeroConfig.findOne({ key: 'default' }).lean();
+                if (dbHero) {
+                    config = {
+                        picture1_url: dbHero.picture1_url,
+                        picture2_url: dbHero.picture2_url,
+                        title: dbHero.title,
+                        subtitle: dbHero.subtitle,
+                        button_text: dbHero.button_text,
+                    };
+                }
+            }
+            catch (dbErr) {
+                console.warn('[Hero] DB fetch warning:', dbErr);
+            }
+        }
+        if (!config) {
+            config = (0, heroStorage_1.loadHeroConfig)();
+        }
         const formatted = normalizeHeroUrls(req, config);
         res.status(200).json({
             success: true,
@@ -302,6 +428,9 @@ exports.adminRouter.post(['/admin/hero', '/hero'], async (req, res) => {
             subtitle: subtitle !== undefined ? subtitle : current.subtitle,
             button_text: button_text !== undefined ? button_text : current.button_text,
         });
+        if (mongoose_1.default.connection.readyState === 1) {
+            await models_1.HeroConfig.findOneAndUpdate({ key: 'default' }, { ...updated, key: 'default' }, { upsert: true });
+        }
         res.status(200).json({
             success: true,
             data: normalizeHeroUrls(req, updated),
@@ -817,6 +946,15 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
           </div>
 
           <div class="form-group">
+            <label>Access Tier</label>
+            <select id="tier">
+              <option value="free">Free (0 Credits)</option>
+              <option value="plus">Plus (1 Credit)</option>
+              <option value="gold">Gold VIP (2 Credits)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
             <label>Description</label>
             <input type="text" id="description" placeholder="e.g. Warm analog glow with high contrast." required />
           </div>
@@ -833,16 +971,24 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
               <input type="file" id="beforeFile" accept="image/*" />
               <img id="beforePreview" class="preview-thumb" />
             </div>
+            <div style="margin-top:6px;">
+              <input type="url" id="beforeUrlInput" placeholder="... or paste Before Image URL directly" style="font-size:12px; padding:8px 12px;" />
+            </div>
           </div>
 
           <div class="form-group">
             <label id="afterLabel">After Image (Filter / Restyled Result)</label>
             <div class="file-dropzone" id="afterDropzone">
               <span id="afterText">Choose or drop After Image</span>
-              <input type="file" id="afterFile" accept="image/*" required />
+              <input type="file" id="afterFile" accept="image/*" />
               <img id="afterPreview" class="preview-thumb" />
             </div>
+            <div style="margin-top:6px;">
+              <input type="url" id="afterUrlInput" placeholder="... or paste After Image URL directly" style="font-size:12px; padding:8px 12px;" />
+            </div>
           </div>
+
+          <div id="formStatusMsg" style="display:none; padding:10px 14px; border-radius:12px; font-size:13px; font-weight:600; margin-top:10px;"></div>
 
           <input type="hidden" id="editLookId" value="" />
           <button type="submit" class="submit-btn" id="submitBtn">Upload & Sync Live to App</button>
@@ -885,7 +1031,7 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
             <label>Before Image (Left Side of Slider)</label>
             <div class="file-dropzone" id="obBeforeDropzone">
               <span id="obBeforeText">Choose or drop Before Image</span>
-              <input type="file" id="obBeforeFile" accept="image/*" required />
+              <input type="file" id="obBeforeFile" accept="image/*" />
               <img id="obBeforePreview" class="preview-thumb" />
             </div>
           </div>
@@ -894,7 +1040,7 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
             <label>After Image (Right Side of Slider)</label>
             <div class="file-dropzone" id="obAfterDropzone">
               <span id="obAfterText">Choose or drop After Image</span>
-              <input type="file" id="obAfterFile" accept="image/*" required />
+              <input type="file" id="obAfterFile" accept="image/*" />
               <img id="obAfterPreview" class="preview-thumb" />
             </div>
           </div>
@@ -1072,21 +1218,31 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          let w = img.width;
-          let h = img.height;
-          if (w > maxWidth) {
-            h = Math.round((h * maxWidth) / w);
-            w = maxWidth;
+          try {
+            let w = img.width;
+            let h = img.height;
+            if (w > maxWidth) {
+              h = Math.round((h * maxWidth) / w);
+              w = maxWidth;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const compressed = canvas.toDataURL('image/jpeg', quality);
+            callback(compressed);
+          } catch (cErr) {
+            callback(e.target.result);
           }
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          const compressed = canvas.toDataURL('image/jpeg', quality);
-          callback(compressed);
+        };
+        img.onerror = () => {
+          callback(e.target.result);
         };
         img.src = e.target.result;
+      };
+      reader.onerror = () => {
+        alert('Could not read image file. Please try another image.');
       };
       reader.readAsDataURL(file);
     }
@@ -1129,9 +1285,34 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
 
       dropzone.addEventListener('drop', (e) => {
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          input.files = e.dataTransfer.files;
           processFile(e.dataTransfer.files[0]);
         }
       });
+    }
+
+    function showStatusMsg(text, isError = false, isLoading = false) {
+      const msg = document.getElementById('formStatusMsg');
+      if (!msg) return;
+      msg.style.display = 'block';
+      msg.innerText = text;
+      if (isLoading) {
+        msg.style.background = '#E8F0FE';
+        msg.style.color = '#1A73E8';
+        msg.style.border = '1px solid #C2E7FF';
+      } else if (isError) {
+        msg.style.background = '#FDE8E8';
+        msg.style.color = '#D32F2F';
+        msg.style.border = '1px solid #F8B4B4';
+      } else {
+        msg.style.background = '#DEF7EC';
+        msg.style.color = '#0E9F6E';
+        msg.style.border = '1px solid #BCF0DA';
+      }
+    }
+    function hideStatusMsg() {
+      const msg = document.getElementById('formStatusMsg');
+      if (msg) msg.style.display = 'none';
     }
 
     // Looks form files
@@ -1150,40 +1331,58 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
       document.getElementById('editLookId').value = item.id;
       document.getElementById('name').value = item.name;
       document.getElementById('kind').value = item.kind;
+      document.getElementById('tier').value = item.tier || 'free';
       document.getElementById('description').value = item.description;
       document.getElementById('promptTemplate').value = item.pipeline_b ? (item.pipeline_b.prompt_template || '') : '';
       handleKindChange();
 
-      existingBeforeUrl = item.preview ? item.preview.before_url : null;
-      existingAfterUrl = item.preview ? item.preview.after_url : null;
+      existingBeforeUrl = item.preview ? (item.preview.before_url || '') : '';
+      existingAfterUrl = item.preview ? (item.preview.after_url || '') : '';
+
+      const beforeUrlEl = document.getElementById('beforeUrlInput');
+      const afterUrlEl = document.getElementById('afterUrlInput');
+      if (beforeUrlEl) beforeUrlEl.value = existingBeforeUrl;
+      if (afterUrlEl) afterUrlEl.value = existingAfterUrl;
 
       if (existingBeforeUrl) {
         document.getElementById('beforePreview').src = existingBeforeUrl;
         document.getElementById('beforePreview').style.display = 'block';
         document.getElementById('beforeText').innerText = 'Current Before Image (click to replace)';
+      } else {
+        document.getElementById('beforePreview').style.display = 'none';
+        document.getElementById('beforeText').innerText = 'Choose or drop Before Image';
       }
+
       if (existingAfterUrl) {
         document.getElementById('afterPreview').src = existingAfterUrl;
         document.getElementById('afterPreview').style.display = 'block';
         document.getElementById('afterText').innerText = 'Current After Image (click to replace)';
+      } else {
+        document.getElementById('afterPreview').style.display = 'none';
+        document.getElementById('afterText').innerText = 'Choose or drop After Image';
       }
 
-      document.getElementById('afterFile').required = false;
       document.getElementById('submitBtn').innerText = 'Update Filter / Template & Sync Live';
       document.getElementById('cancelEditBtn').style.display = 'block';
+      hideStatusMsg();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function cancelEditLook() {
       document.getElementById('uploadForm').reset();
       document.getElementById('editLookId').value = '';
+      document.getElementById('tier').value = 'free';
       document.getElementById('beforePreview').style.display = 'none';
       document.getElementById('afterPreview').style.display = 'none';
       document.getElementById('beforeText').innerText = 'Choose or drop Before Image';
       document.getElementById('afterText').innerText = 'Choose or drop After Image';
-      document.getElementById('afterFile').required = true;
+      const beforeUrlEl = document.getElementById('beforeUrlInput');
+      const afterUrlEl = document.getElementById('afterUrlInput');
+      if (beforeUrlEl) beforeUrlEl.value = '';
+      if (afterUrlEl) afterUrlEl.value = '';
       document.getElementById('submitBtn').innerText = 'Upload & Sync Live to App';
       document.getElementById('cancelEditBtn').style.display = 'none';
+      hideStatusMsg();
       beforeBase64 = null;
       afterBase64 = null;
       existingBeforeUrl = null;
@@ -1193,19 +1392,32 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('submitBtn');
+      const isEditing = !!document.getElementById('editLookId').value;
+      const inputAfterUrl = (document.getElementById('afterUrlInput')?.value || '').trim();
+      const inputBeforeUrl = (document.getElementById('beforeUrlInput')?.value || '').trim();
+      const targetAfterUrl = inputAfterUrl || existingAfterUrl;
+      const targetBeforeUrl = inputBeforeUrl || existingBeforeUrl;
+
+      if (!afterBase64 && !targetAfterUrl) {
+        showStatusMsg('⚠️ Please upload an After/Template preview image OR paste an image URL.', true);
+        return;
+      }
+
       btn.disabled = true;
       btn.innerText = 'Uploading & Syncing...';
+      showStatusMsg('⏳ Uploading image and syncing live with Mobile App...', false, true);
 
       const payload = {
         id: document.getElementById('editLookId').value || undefined,
         name: document.getElementById('name').value,
         kind: document.getElementById('kind').value,
+        tier: document.getElementById('tier').value || 'free',
         description: document.getElementById('description').value,
         promptTemplate: document.getElementById('promptTemplate').value,
         beforeImageBase64: beforeBase64,
         afterImageBase64: afterBase64,
-        beforeUrl: existingBeforeUrl,
-        afterUrl: existingAfterUrl,
+        beforeUrl: targetBeforeUrl || undefined,
+        afterUrl: targetAfterUrl || undefined,
       };
 
       try {
@@ -1216,17 +1428,19 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
         });
         const data = await res.json();
         if (data.success) {
-          alert(payload.id ? 'Filter/Template updated successfully! Live in mobile app.' : 'Filter/Template uploaded successfully! Live in mobile app.');
-          cancelEditLook();
-          fetchLooks();
+          showStatusMsg(isEditing ? '✅ Filter/Template updated successfully! Live in mobile app.' : '✅ Filter/Template uploaded successfully! Live in mobile app.', false, false);
+          setTimeout(() => {
+            cancelEditLook();
+            fetchLooks();
+          }, 1000);
         } else {
-          alert('Error: ' + data.error);
+          showStatusMsg('❌ Error: ' + (data.error || 'Failed to save look'), true);
         }
       } catch (err) {
-        alert('Upload failed: ' + err.message);
+        showStatusMsg('❌ Upload failed: ' + err.message, true);
       } finally {
         btn.disabled = false;
-        btn.innerText = 'Upload & Sync Live to App';
+        btn.innerText = isEditing ? 'Update Filter / Template & Sync Live' : 'Upload & Sync Live to App';
       }
     });
 
@@ -1239,17 +1453,24 @@ exports.adminRouter.get(['/admin', '/admin/'], (_req, res) => {
           document.getElementById('totalCount').innerText = data.data.length;
           const grid = document.getElementById('catalogGrid');
           grid.innerHTML = data.data.map(item => {
-            const hasBefore = item.preview.before_url && item.preview.before_url !== item.preview.after_url;
+            const hasBefore = item.preview && item.preview.before_url && item.preview.before_url !== item.preview.after_url;
+            const previewAfter = (item.preview && (item.preview.after_url || item.preview.thumbnail_url)) || '';
+            const previewBefore = (item.preview && item.preview.before_url) || '';
+            const tierBadgeColor = item.tier === 'gold' ? '#D4AF37' : (item.tier === 'plus' ? '#7C3AED' : '#555555');
+            const tierLabel = item.tier === 'gold' ? 'GOLD VIP' : (item.tier === 'plus' ? 'PLUS' : 'FREE');
             return \`
               <div class="card">
                 <div class="card-img-wrap">
                   \${hasBefore ? \`
-                    <img src="\${item.preview.before_url}" class="card-img-split" title="Before" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&q=80'" />
-                    <img src="\${item.preview.after_url}" class="card-img-split" title="After" onerror="this.src='https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&q=80'" />
+                    <img src="\${previewBefore}" class="card-img-split" title="Before" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&q=80'" />
+                    <img src="\${previewAfter}" class="card-img-split" title="After" onerror="this.src='https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&q=80'" />
                   \` : \`
-                    <img src="\${item.preview.after_url || item.preview.thumbnail_url}" alt="\${item.name}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80'" />
+                    <img src="\${previewAfter}" alt="\${item.name}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80'" />
                   \`}
-                  <span class="card-type-tag">\${item.kind}</span>
+                  <div style="position:absolute; top:8px; left:8px; display:flex; gap:4px;">
+                    <span class="card-type-tag">\${item.kind}</span>
+                    <span class="card-type-tag" style="background:\${tierBadgeColor}; color:#fff;">\${tierLabel}</span>
+                  </div>
                 </div>
                 <div class="card-content">
                   <div>

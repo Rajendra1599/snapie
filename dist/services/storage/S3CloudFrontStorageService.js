@@ -49,6 +49,7 @@ class S3CloudFrontStorageService {
             Key: cleanKey,
             Body: buffer,
             ContentType: contentType,
+            ContentLength: buffer.length,
         });
         await this.s3.send(command);
         return this.getPublicCdnUrl(cleanKey);

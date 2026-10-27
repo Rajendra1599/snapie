@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Report = exports.Purchase = exports.CreditLedger = exports.Generation = exports.Look = exports.User = void 0;
+exports.HeroConfig = exports.OnboardingSlide = exports.Report = exports.Purchase = exports.CreditLedger = exports.Generation = exports.Look = exports.User = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const UserSchema = new mongoose_1.Schema({
     userId: { type: String, required: true, unique: true, index: true },
@@ -93,9 +93,28 @@ const ReportSchema = new mongoose_1.Schema({
     generationId: { type: String, required: true, index: true },
     reason: { type: String, required: true },
 }, { timestamps: { createdAt: 'createdAt', updatedAt: false } });
+const OnboardingSlideSchema = new mongoose_1.Schema({
+    id: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true },
+    subtitle: { type: String, default: '' },
+    before_url: { type: String, default: '' },
+    after_url: { type: String, default: '' },
+    filter: { type: [Number], default: [] },
+    order: { type: Number, default: 1 },
+}, { timestamps: true });
+const HeroConfigSchema = new mongoose_1.Schema({
+    key: { type: String, required: true, unique: true, default: 'default' },
+    picture1_url: { type: String, default: '' },
+    picture2_url: { type: String, default: '' },
+    title: { type: String, default: 'aesthetic\nfilters' },
+    subtitle: { type: String, default: 'Film looks and pro adjustments, free on any photo.' },
+    button_text: { type: String, default: 'SELECT A PHOTO' },
+}, { timestamps: true });
 exports.User = mongoose_1.default.model('User', UserSchema);
 exports.Look = mongoose_1.default.model('Look', LookSchema);
 exports.Generation = mongoose_1.default.model('Generation', GenerationSchema);
 exports.CreditLedger = mongoose_1.default.model('CreditLedger', CreditLedgerSchema);
 exports.Purchase = mongoose_1.default.model('Purchase', PurchaseSchema);
 exports.Report = mongoose_1.default.model('Report', ReportSchema);
+exports.OnboardingSlide = mongoose_1.default.model('OnboardingSlide', OnboardingSlideSchema);
+exports.HeroConfig = mongoose_1.default.model('HeroConfig', HeroConfigSchema);
